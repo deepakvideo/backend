@@ -9,10 +9,10 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 app.use(express.static(__dirname));
 
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "index.html"));
+// Return a simple text message instead of looking for index.html
+app.get('/', (req, res) => {
+  res.send('Rummy Game Socket.IO Backend is Running!');
 });
-
 // Helper function to generate a random 5-character room code
 function generateRoomCode() {
   return Math.random().toString(36).substring(2, 7);
