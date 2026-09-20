@@ -9,11 +9,7 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 app.use(express.static(__dirname));
 
-<<<<<<< HEAD
-=======
 
-
->>>>>>> ac8050182ad1626fa06cabe4c4405d3b7daf4814
 app.get("/", (req, res) => {
   res.send("Rummy Game Socket.IO Backend is Running!");
 });
