@@ -14,10 +14,9 @@ app.get("/", (req, res) => {
 });
 
 function generateRoomCode() {
-  return Math.random().toString(36).substring(2, 7).toUpperCase();
+  return Math.random().toString(36).substring(2, 7);
 }
 
-// Helper to mask opponent cards while keeping recipient's cards visible
 function getCleanRoomState(room, recipientSocketId = null) {
   return {
     id: room.id,
@@ -27,8 +26,10 @@ function getCleanRoomState(room, recipientSocketId = null) {
       id: p.id,
       name: p.name,
       isHost: p.isHost,
-      // Only attach actual hand cards to the player who owns them
-      hand: recipientSocketId && p.id === recipientSocketId ? (p.hand || []) : [],
+      // Hide opponent hands: only return full card data if it belongs to the recipient
+      hand: recipientSocketId && p.id === recipientSocketId 
+        ? (p.hand || []) 
+        : [],
       handSize: (p.hand || []).length,
     })),
   };
@@ -42,10 +43,9 @@ const COUNTDOWN_SECONDS = 20;
 
 io.on("connection", (socket) => {
   socket.on("joinGame", ({ requestedRoom, playerName }) => {
-    // 1. Sanitize and trim the requested room code
-    let targetRoomCode = requestedRoom ? String(requestedRoom).trim().toUpperCase() : null;
+    let targetRoomCode = requestedRoom;
 
-    // 2. Find or create auto-match room if no room code was specified
+    // Find or create auto-match room if no room code provided
     if (!targetRoomCode) {
       if (
         !activeMatchRoom ||
@@ -58,7 +58,7 @@ io.on("connection", (socket) => {
       targetRoomCode = activeMatchRoom;
     }
 
-    // 3. Initialize target room if it doesn't exist
+    // Initialize room if missing
     if (!rooms[targetRoomCode]) {
       rooms[targetRoomCode] = {
         id: targetRoomCode,
@@ -69,7 +69,7 @@ io.on("connection", (socket) => {
       };
     }
 
-    // 4. Redirect to a fresh room if the target room is already full or running
+    // Redirect to a fresh room if target room is locked or full
     if (
       rooms[targetRoomCode].players.length >= MAX_PLAYERS_PER_ROOM ||
       rooms[targetRoomCode].started
@@ -96,11 +96,9 @@ io.on("connection", (socket) => {
     };
 
     currentRoom.players.push(player);
-
-    // Notify user of their assigned room code
     socket.emit("assignedRoom", targetRoomCode);
 
-    // 5. Start match countdown when room reaches 2 players
+    // Start countdown when capacity reaches 2
     if (
       currentRoom.players.length >= 2 &&
       !currentRoom.countdown &&
@@ -117,7 +115,7 @@ io.on("connection", (socket) => {
           currentRoom.countdown = null;
           currentRoom.started = true;
 
-          // Broadcast masked game start state to each individual socket
+          // Emit initial state to each player safely (masking opponent cards)
           currentRoom.players.forEach((p) => {
             io.to(p.id).emit("gameStartSignal", getCleanRoomState(currentRoom, p.id));
           });
@@ -125,7 +123,7 @@ io.on("connection", (socket) => {
       }, 1000);
     }
 
-    // 6. Broadcast updated room state to all players in the room
+    // Emit sanitized room state to each player
     currentRoom.players.forEach((p) => {
       io.to(p.id).emit("roomUpdate", getCleanRoomState(currentRoom, p.id));
     });
@@ -144,7 +142,7 @@ io.on("connection", (socket) => {
       const room = rooms[roomCode];
       room.players = room.players.filter((p) => p.id !== socket.id);
 
-      // Reset countdown if players drop below minimum threshold
+      // Cancel timer if players dropped below required threshold
       if (room.players.length < 2 && room.countdown) {
         clearInterval(room.countdown);
         room.countdown = null;
@@ -157,7 +155,7 @@ io.on("connection", (socket) => {
           activeMatchRoom = null;
         }
       } else {
-        // Reassign host
+        // Transfer host role to the remaining player
         room.players[0].isHost = true;
 
         room.players.forEach((p) => {
@@ -168,7 +166,6 @@ io.on("connection", (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Multiplayer server running on port ${PORT}`);
+server.listen(3000, () => {
+  console.log("Multiplayer server running on port 3000");
 });
