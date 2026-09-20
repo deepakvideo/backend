@@ -9,10 +9,7 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 app.use(express.static(__dirname));
 
-// Return a simple text message instead of looking for index.html
-app.get('/', (req, res) => {
-  res.send('Rummy Game Socket.IO Backend is Running!');
-});
+
 
 app.get("/", (req, res) => {
   res.redirect("https://us-rummy.web.app");
