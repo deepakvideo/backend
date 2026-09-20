@@ -13,6 +13,13 @@ app.use(express.static(__dirname));
 app.get('/', (req, res) => {
   res.send('Rummy Game Socket.IO Backend is Running!');
 });
+
+app.get("/", (req, res) => {
+  res.redirect("https://us-rummy.web.app");
+});
+
+
+
 // Helper function to generate a random 5-character room code
 function generateRoomCode() {
   return Math.random().toString(36).substring(2, 7);
