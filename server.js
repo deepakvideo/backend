@@ -66,7 +66,7 @@ io.on("connection", (socket) => {
   socket.on("joinGame", ({ requestedRoom, playerName }) => {
     let targetRoomCode = requestedRoom ? requestedRoom.toUpperCase() : "";
 
-    // If no room requested, find or create active auto-match room
+    // If no specific room was requested, find or create active auto-match room
     if (!targetRoomCode) {
       if (
         !activeMatchRoom ||
@@ -79,22 +79,18 @@ io.on("connection", (socket) => {
       targetRoomCode = activeMatchRoom;
     }
 
-    // Initialize room if new
-    if (!rooms[targetRoomCode]) {
-      rooms[targetRoomCode] = {
-        id: targetRoomCode,
-        players: [],
-        started: false,
-        countdown: null,
-        timerVal: COUNTDOWN_SECONDS,
-      };
-    }
-
+    // Check if room exists
     let currentRoom = rooms[targetRoomCode];
 
-    // Redirect to a fresh room if requested room is locked or full
-    if (currentRoom.players.length >= MAX_PLAYERS_PER_ROOM || currentRoom.started) {
+    // Redirect to a fresh room ONLY if the requested room is locked or full
+    if (currentRoom && (currentRoom.players.length >= MAX_PLAYERS_PER_ROOM || currentRoom.started)) {
+      socket.emit("errorMsg", "Requested room is full or in progress. Redirecting to a new room.");
       targetRoomCode = generateRoomCode();
+      currentRoom = null; // Reset to trigger creation of new room
+    }
+
+    // Initialize room if it doesn't exist
+    if (!currentRoom) {
       rooms[targetRoomCode] = {
         id: targetRoomCode,
         players: [],
@@ -117,11 +113,11 @@ io.on("connection", (socket) => {
 
     currentRoom.players.push(player);
 
-    // Notify joining client of room code
+    // Explicitly emit assigned room to the joining client
     socket.emit("assignedRoom", targetRoomCode);
 
-    // Trigger match countdown when room reaches required capacity
-    if (currentRoom.players.length >= 2 && !currentRoom.countdown && !currentRoom.started) {
+    // Trigger match countdown when room reaches capacity
+    if (currentRoom.players.length >= MAX_PLAYERS_PER_ROOM && !currentRoom.countdown && !currentRoom.started) {
       currentRoom.timerVal = COUNTDOWN_SECONDS;
 
       currentRoom.countdown = setInterval(() => {
@@ -138,7 +134,7 @@ io.on("connection", (socket) => {
       }, 1000);
     }
 
-    // Broadcast room update to room members
+    // Broadcast room update to all room members
     io.to(targetRoomCode).emit("roomUpdate", getCleanRoomState(currentRoom));
   });
 
@@ -157,8 +153,8 @@ io.on("connection", (socket) => {
       // Remove player
       room.players = room.players.filter((p) => p.id !== socket.id);
 
-      // Stop countdown if player drops below required count
-      if (room.players.length < 2 && room.countdown) {
+      // Stop countdown if player count drops below capacity before game starts
+      if (room.players.length < MAX_PLAYERS_PER_ROOM && room.countdown) {
         clearInterval(room.countdown);
         room.countdown = null;
         room.timerVal = COUNTDOWN_SECONDS;
@@ -183,7 +179,7 @@ io.on("connection", (socket) => {
   });
 });
 
-// Use dynamic process.env.PORT for Render compatibility
+// Dynamic PORT for Render deployment
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Multiplayer server running on port ${PORT}`);
