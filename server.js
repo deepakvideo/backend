@@ -5,7 +5,14 @@ const { Server } = require("socket.io");
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+
+// Enable CORS for cross-origin client connections (Render / Static Frontends)
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"],
+  },
+});
 
 app.use(express.static(__dirname));
 
@@ -13,12 +20,16 @@ app.get("/", (req, res) => {
   res.send("Rummy Game Socket.IO Backend is Running!");
 });
 
-// Helper function to generate a random 5-character room code
+// Helper to generate unique 5-character room codes
 function generateRoomCode() {
-  return Math.random().toString(36).substring(2, 7);
+  let code = "";
+  do {
+    code = Math.random().toString(36).substring(2, 7).toUpperCase();
+  } while (rooms[code]);
+  return code;
 }
 
-// Helper to extract a clean, serializable room snapshot (prevents Socket.IO RangeError)
+// Helper to extract a clean, serializable room snapshot
 function getCleanRoomState(room) {
   return {
     id: room.id,
@@ -43,18 +54,19 @@ function getCleanRoomState(room) {
   };
 }
 
-// Global active room variable for auto-matching
 let activeMatchRoom = null;
 const rooms = {};
 
-const MAX_PLAYERS_PER_ROOM = 2; // Maximum capacity per room
+const MAX_PLAYERS_PER_ROOM = 2;
 const COUNTDOWN_SECONDS = 20;
 
 io.on("connection", (socket) => {
-  socket.on("joinGame", ({ requestedRoom, playerName }) => {
-    let targetRoomCode = requestedRoom;
+  console.log(`Client connected: ${socket.id}`);
 
-    // IF NO DIRECT LINK PROVIDED: Find or create an auto-match room
+  socket.on("joinGame", ({ requestedRoom, playerName }) => {
+    let targetRoomCode = requestedRoom ? requestedRoom.toUpperCase() : "";
+
+    // If no room requested, find or create active auto-match room
     if (!targetRoomCode) {
       if (
         !activeMatchRoom ||
@@ -67,7 +79,7 @@ io.on("connection", (socket) => {
       targetRoomCode = activeMatchRoom;
     }
 
-    // Initialize room object if it doesn't exist
+    // Initialize room if new
     if (!rooms[targetRoomCode]) {
       rooms[targetRoomCode] = {
         id: targetRoomCode,
@@ -78,11 +90,10 @@ io.on("connection", (socket) => {
       };
     }
 
-    const room = rooms[targetRoomCode];
+    let currentRoom = rooms[targetRoomCode];
 
-    // Check capacity override
-    if (room.players.length >= MAX_PLAYERS_PER_ROOM || room.started) {
-      // Create a fresh room if requested room was locked or full
+    // Redirect to a fresh room if requested room is locked or full
+    if (currentRoom.players.length >= MAX_PLAYERS_PER_ROOM || currentRoom.started) {
       targetRoomCode = generateRoomCode();
       rooms[targetRoomCode] = {
         id: targetRoomCode,
@@ -91,9 +102,9 @@ io.on("connection", (socket) => {
         countdown: null,
         timerVal: COUNTDOWN_SECONDS,
       };
+      currentRoom = rooms[targetRoomCode];
     }
 
-    const currentRoom = rooms[targetRoomCode];
     socket.join(targetRoomCode);
     socket.roomCode = targetRoomCode;
 
@@ -106,10 +117,10 @@ io.on("connection", (socket) => {
 
     currentRoom.players.push(player);
 
-    // Notify user of their assigned room code
+    // Notify joining client of room code
     socket.emit("assignedRoom", targetRoomCode);
 
-    // If 2 or more players have joined, initiate the 20-second match start countdown
+    // Trigger match countdown when room reaches required capacity
     if (currentRoom.players.length >= 2 && !currentRoom.countdown && !currentRoom.started) {
       currentRoom.timerVal = COUNTDOWN_SECONDS;
 
@@ -121,13 +132,13 @@ io.on("connection", (socket) => {
         if (currentRoom.timerVal <= 0) {
           clearInterval(currentRoom.countdown);
           currentRoom.countdown = null;
-          currentRoom.started = true; // LOCK ROOM
+          currentRoom.started = true; // Lock room
           io.to(targetRoomCode).emit("gameStartSignal", getCleanRoomState(currentRoom));
         }
       }, 1000);
     }
 
-    // Broadcast clean room update to all players inside this specific room
+    // Broadcast room update to room members
     io.to(targetRoomCode).emit("roomUpdate", getCleanRoomState(currentRoom));
   });
 
@@ -142,8 +153,19 @@ io.on("connection", (socket) => {
     const roomCode = socket.roomCode;
     if (roomCode && rooms[roomCode]) {
       const room = rooms[roomCode];
+
+      // Remove player
       room.players = room.players.filter((p) => p.id !== socket.id);
 
+      // Stop countdown if player drops below required count
+      if (room.players.length < 2 && room.countdown) {
+        clearInterval(room.countdown);
+        room.countdown = null;
+        room.timerVal = COUNTDOWN_SECONDS;
+        io.to(roomCode).emit("countdownUpdate", COUNTDOWN_SECONDS);
+      }
+
+      // Cleanup empty rooms
       if (room.players.length === 0) {
         if (room.countdown) clearInterval(room.countdown);
         delete rooms[roomCode];
@@ -151,12 +173,18 @@ io.on("connection", (socket) => {
           activeMatchRoom = null;
         }
       } else {
+        // Reassign host status if old host disconnected
+        if (!room.players.some((p) => p.isHost)) {
+          room.players[0].isHost = true;
+        }
         io.to(roomCode).emit("roomUpdate", getCleanRoomState(room));
       }
     }
   });
 });
 
-server.listen(3000, () => {
-  console.log("Multiplayer server running on port 3000");
+// Use dynamic process.env.PORT for Render compatibility
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Multiplayer server running on port ${PORT}`);
 });
