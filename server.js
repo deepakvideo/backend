@@ -13,12 +13,13 @@ app.get("/", (req, res) => {
   res.send("Rummy Game Socket.IO Backend is Running!");
 });
 
+// Helper function to generate a random 5-character room code
 function generateRoomCode() {
-  return Math.random().toString(36).substring(2, 7).toUpperCase();
+  return Math.random().toString(36).substring(2, 7);
 }
 
-// Helper to mask opponent cards while keeping recipient's cards visible
-function getCleanRoomState(room, recipientSocketId = null) {
+// Helper to extract a clean, serializable room snapshot (prevents Socket.IO RangeError)
+function getCleanRoomState(room) {
   return {
     id: room.id,
     started: room.started,
@@ -27,25 +28,33 @@ function getCleanRoomState(room, recipientSocketId = null) {
       id: p.id,
       name: p.name,
       isHost: p.isHost,
-      // Only attach actual hand cards to the player who owns them
-      hand: recipientSocketId && p.id === recipientSocketId ? (p.hand || []) : [],
-      handSize: (p.hand || []).length,
+      hand: (p.hand || []).map((card) => ({
+        id: card.id,
+        suitId: card.suitId,
+        suitName: card.suitName,
+        suitIcon: card.suitIcon,
+        suitOrder: card.suitOrder,
+        rankKey: card.rankKey,
+        rankLabel: card.rankLabel,
+        order: card.order,
+        value: card.value,
+      })),
     })),
   };
 }
 
+// Global active room variable for auto-matching
 let activeMatchRoom = null;
 const rooms = {};
 
-const MAX_PLAYERS_PER_ROOM = 2;
+const MAX_PLAYERS_PER_ROOM = 2; // Maximum capacity per room
 const COUNTDOWN_SECONDS = 20;
 
 io.on("connection", (socket) => {
   socket.on("joinGame", ({ requestedRoom, playerName }) => {
-    // 1. Sanitize and trim the requested room code
-    let targetRoomCode = requestedRoom ? String(requestedRoom).trim().toUpperCase() : null;
+    let targetRoomCode = requestedRoom;
 
-    // 2. Find or create auto-match room if no room code was specified
+    // IF NO DIRECT LINK PROVIDED: Find or create an auto-match room
     if (!targetRoomCode) {
       if (
         !activeMatchRoom ||
@@ -58,7 +67,7 @@ io.on("connection", (socket) => {
       targetRoomCode = activeMatchRoom;
     }
 
-    // 3. Initialize target room if it doesn't exist
+    // Initialize room object if it doesn't exist
     if (!rooms[targetRoomCode]) {
       rooms[targetRoomCode] = {
         id: targetRoomCode,
@@ -69,11 +78,11 @@ io.on("connection", (socket) => {
       };
     }
 
-    // 4. Redirect to a fresh room if the target room is already full or running
-    if (
-      rooms[targetRoomCode].players.length >= MAX_PLAYERS_PER_ROOM ||
-      rooms[targetRoomCode].started
-    ) {
+    const room = rooms[targetRoomCode];
+
+    // Check capacity override
+    if (room.players.length >= MAX_PLAYERS_PER_ROOM || room.started) {
+      // Create a fresh room if requested room was locked or full
       targetRoomCode = generateRoomCode();
       rooms[targetRoomCode] = {
         id: targetRoomCode,
@@ -100,35 +109,26 @@ io.on("connection", (socket) => {
     // Notify user of their assigned room code
     socket.emit("assignedRoom", targetRoomCode);
 
-    // 5. Start match countdown when room reaches 2 players
-    if (
-      currentRoom.players.length >= 2 &&
-      !currentRoom.countdown &&
-      !currentRoom.started
-    ) {
+    // If 2 or more players have joined, initiate the 20-second match start countdown
+    if (currentRoom.players.length >= 2 && !currentRoom.countdown && !currentRoom.started) {
       currentRoom.timerVal = COUNTDOWN_SECONDS;
 
       currentRoom.countdown = setInterval(() => {
         currentRoom.timerVal -= 1;
+
         io.to(targetRoomCode).emit("countdownUpdate", currentRoom.timerVal);
 
         if (currentRoom.timerVal <= 0) {
           clearInterval(currentRoom.countdown);
           currentRoom.countdown = null;
-          currentRoom.started = true;
-
-          // Broadcast masked game start state to each individual socket
-          currentRoom.players.forEach((p) => {
-            io.to(p.id).emit("gameStartSignal", getCleanRoomState(currentRoom, p.id));
-          });
+          currentRoom.started = true; // LOCK ROOM
+          io.to(targetRoomCode).emit("gameStartSignal", getCleanRoomState(currentRoom));
         }
       }, 1000);
     }
 
-    // 6. Broadcast updated room state to all players in the room
-    currentRoom.players.forEach((p) => {
-      io.to(p.id).emit("roomUpdate", getCleanRoomState(currentRoom, p.id));
-    });
+    // Broadcast clean room update to all players inside this specific room
+    io.to(targetRoomCode).emit("roomUpdate", getCleanRoomState(currentRoom));
   });
 
   socket.on("syncGameState", (gameState) => {
@@ -144,31 +144,19 @@ io.on("connection", (socket) => {
       const room = rooms[roomCode];
       room.players = room.players.filter((p) => p.id !== socket.id);
 
-      // Reset countdown if players drop below minimum threshold
-      if (room.players.length < 2 && room.countdown) {
-        clearInterval(room.countdown);
-        room.countdown = null;
-        room.timerVal = COUNTDOWN_SECONDS;
-      }
-
       if (room.players.length === 0) {
+        if (room.countdown) clearInterval(room.countdown);
         delete rooms[roomCode];
         if (activeMatchRoom === roomCode) {
           activeMatchRoom = null;
         }
       } else {
-        // Reassign host
-        room.players[0].isHost = true;
-
-        room.players.forEach((p) => {
-          io.to(p.id).emit("roomUpdate", getCleanRoomState(room, p.id));
-        });
+        io.to(roomCode).emit("roomUpdate", getCleanRoomState(room));
       }
     }
   });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Multiplayer server running on port ${PORT}`);
+server.listen(3000, () => {
+  console.log("Multiplayer server running on port 3000");
 });
