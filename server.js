@@ -62,7 +62,7 @@ function createRummyDeck() {
 
 /**
  * Builds the exact data byte string needed by Android's RummyGame.loadData():
- * Format: VERSION \n ROUND \n STARTED_ROUND \n DRAW_DECK \n PLAY_DECK \n HAND_1 \n HAND_2 \n SCORE_1 \n SCORE_2 \n
+ * Delimited by \n without trailing empty entries.
  */
 function buildInitialRummyGameData(numPlayers) {
   const version = 1;
@@ -85,24 +85,24 @@ function buildInitialRummyGameData(numPlayers) {
   // Draw 1 card for the play deck (open discard pile)
   const playDeckStr = deck.pop();
 
-  // The remaining cards form the draw deck
+  // Remaining deck forms draw deck
   const drawDeckStr = deck.join("");
 
   // Initial scores (0 for all players)
   const scores = new Array(numPlayers).fill(0);
 
-  // Combine into single \n delimited payload matching Android's RummyGame expectations
-  let gameData = `${version}\n${round}\n${startedRound}\n${drawDeckStr}\n${playDeckStr}\n`;
-  
-  for (let i = 0; i < numPlayers; i++) {
-    gameData += `${playerHands[i]}\n`;
-  }
-  
-  for (let i = 0; i < numPlayers; i++) {
-    gameData += `${scores[i]}\n`;
-  }
+  // Construct clean \n separated items
+  const payloadParts = [
+    version,
+    round,
+    startedRound,
+    drawDeckStr,
+    playDeckStr,
+    ...playerHands,
+    ...scores,
+  ];
 
-  return gameData;
+  return payloadParts.join("\n");
 }
 
 // Helper to extract a clean, serializable room snapshot
@@ -124,12 +124,16 @@ let activeMatchRoom = null;
 const rooms = {};
 
 const MAX_PLAYERS_PER_ROOM = 2;
-const COUNTDOWN_SECONDS = 5; // Reduced to 5s for faster testing
+const COUNTDOWN_SECONDS = 5;
 
 io.on("connection", (socket) => {
   console.log(`Client connected: ${socket.id}`);
 
-  socket.on("joinGame", ({ requestedRoom, playerName }) => {
+  socket.on("joinGame", (data) => {
+    // Handle both payload formats: string/object or direct fields
+    const requestedRoom = data && data.requestedRoom ? data.requestedRoom : "";
+    const playerName = data && data.name ? data.name : "Player";
+
     let targetRoomCode = requestedRoom ? requestedRoom.toUpperCase() : "";
 
     if (!targetRoomCode) {
@@ -191,7 +195,7 @@ io.on("connection", (socket) => {
           currentRoom.countdown = null;
           currentRoom.started = true; // Lock room
 
-          // Build initial Rummy game state (decks, hands, scores)
+          // Build initial Rummy game state
           currentRoom.gameData = buildInitialRummyGameData(currentRoom.players.length);
 
           // Emit gameStartSignal along with serialized gameData
@@ -209,6 +213,15 @@ io.on("connection", (socket) => {
       socket.to(roomCode).emit("gameStateUpdated", gameState);
     }
   });
+
+socket.on("playerDropped", data => {
+
+    io.to(socket.roomCode)
+      .emit(
+            "opponentWon",
+            data
+      );
+});
 
   socket.on("disconnect", () => {
     const roomCode = socket.roomCode;
