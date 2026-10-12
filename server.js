@@ -214,14 +214,6 @@ io.on("connection", (socket) => {
     }
   });
 
-socket.on("playerDropped", data => {
-
-    io.to(socket.roomCode)
-      .emit(
-            "opponentWon",
-            data
-      );
-});
 
   socket.on("disconnect", () => {
     const roomCode = socket.roomCode;
