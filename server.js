@@ -35,14 +35,25 @@ function getCleanRoomState(room) {
     id: room.id,
     started: room.started,
     timerVal: room.timerVal,
-    gameData: room.gameData, // Pass the serialized game state string directly
     players: room.players.map((p) => ({
       id: p.id,
       name: p.name,
       isHost: p.isHost,
+      hand: (p.hand || []).map((card) => ({
+        id: card.id,
+        suitId: card.suitId,
+        suitName: card.suitName,
+        suitIcon: card.suitIcon,
+        suitOrder: card.suitOrder,
+        rankKey: card.rankKey,
+        rankLabel: card.rankLabel,
+        order: card.order,
+        value: card.value,
+      })),
     })),
   };
 }
+
 let activeMatchRoom = null;
 const rooms = {};
 
@@ -127,13 +138,13 @@ io.on("connection", (socket) => {
     io.to(targetRoomCode).emit("roomUpdate", getCleanRoomState(currentRoom));
   });
 
-socket.on("syncGameState", (gameState) => {
+  socket.on("syncGameState", (gameState) => {
     const roomCode = socket.roomCode;
     if (roomCode) {
-      // Broadcast gameData string to opponent
       socket.to(roomCode).emit("gameStateUpdated", gameState);
     }
   });
+
   socket.on("disconnect", () => {
     const roomCode = socket.roomCode;
     if (roomCode && rooms[roomCode]) {
