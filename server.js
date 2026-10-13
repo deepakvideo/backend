@@ -49,9 +49,7 @@ function getCleanRoomState(room) {
         id: room.id,
         started: room.started,
         timerVal: room.timerVal,
-
         gameData: room.gameData || "",
-
         players: room.players.map((p) => ({
             id: p.id,
             name: p.name,
@@ -178,8 +176,12 @@ if (currentRoom.timerVal <= 0) {
     currentRoom.countdown = null;
     currentRoom.started = true;
 
+    // TEMP DEBUG DATA
+    currentRoom.gameData =
+        "1|1|-1|000|000|000|000|0|0|";
+
     console.log(
-        "GAME DATA BEFORE START:",
+        "GAME DATA BEFORE START =",
         currentRoom.gameData
     );
 
