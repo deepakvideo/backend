@@ -50,27 +50,18 @@ function getCleanRoomState(room) {
         started: room.started,
         timerVal: room.timerVal,
 
-        gameState: room.gameState || {},
+        gameData: JSON.stringify(
+            room.gameState || {}
+        ),
 
         players: room.players.map((p) => ({
             id: p.id,
             name: p.name,
             isHost: p.isHost,
-            hand: (p.hand || []).map((card) => ({
-                id: card.id,
-                suitId: card.suitId,
-                suitName: card.suitName,
-                suitIcon: card.suitIcon,
-                suitOrder: card.suitOrder,
-                rankKey: card.rankKey,
-                rankLabel: card.rankLabel,
-                order: card.order,
-                value: card.value
-            }))
+            hand: p.hand || []
         }))
     };
 }
-
 io.on("connection", (socket) => {
 
     console.log(`Client connected: ${socket.id}`);
