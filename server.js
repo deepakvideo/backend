@@ -50,9 +50,7 @@ function getCleanRoomState(room) {
         started: room.started,
         timerVal: room.timerVal,
 
-        gameData: JSON.stringify(
-            room.gameState || {}
-        ),
+        gameData: room.gameData || "",
 
         players: room.players.map((p) => ({
             id: p.id,
@@ -62,6 +60,7 @@ function getCleanRoomState(room) {
         }))
     };
 }
+
 io.on("connection", (socket) => {
 
     console.log(`Client connected: ${socket.id}`);
@@ -172,18 +171,23 @@ io.on("connection", (socket) => {
                     currentRoom.timerVal
                 );
 
-                if (currentRoom.timerVal <= 0) {
+if (currentRoom.timerVal <= 0) {
 
-                    clearInterval(currentRoom.countdown);
+    clearInterval(currentRoom.countdown);
 
-                    currentRoom.countdown = null;
-                    currentRoom.started = true;
+    currentRoom.countdown = null;
+    currentRoom.started = true;
 
-                    io.to(targetRoomCode).emit(
-                        "gameStartSignal",
-                        getCleanRoomState(currentRoom)
-                    );
-                }
+    console.log(
+        "GAME DATA BEFORE START:",
+        currentRoom.gameData
+    );
+
+    io.to(targetRoomCode).emit(
+        "gameStartSignal",
+        getCleanRoomState(currentRoom)
+    );
+}
 
             }, 1000);
         }
@@ -224,18 +228,21 @@ socket.on("syncGameState", (state) => {
     // Optional request for latest state
     socket.on("requestGameState", () => {
 
-        const roomCode = socket.roomCode;
+    const roomCode = socket.roomCode;
 
-        if (
-            roomCode &&
-            rooms[roomCode]
-        ) {
-            socket.emit(
-                "gameStateUpdated",
-                rooms[roomCode].gameState
-            );
-        }
-    });
+    if (
+        roomCode &&
+        rooms[roomCode]
+    ) {
+
+        socket.emit(
+            "gameStateUpdated",
+            {
+                gameData: rooms[roomCode].gameData
+            }
+        );
+    }
+});
 
     socket.on("disconnect", () => {
 
