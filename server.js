@@ -110,14 +110,14 @@ io.on("connection", (socket) => {
         // Create room
         if (!currentRoom) {
 
-            rooms[targetRoomCode] = {
-                id: targetRoomCode,
-                players: [],
-                started: false,
-                countdown: null,
-                timerVal: COUNTDOWN_SECONDS,
-                gameState: {}
-            };
+         rooms[targetRoomCode] = {
+    id: targetRoomCode,
+    players: [],
+    started: false,
+    countdown: null,
+    timerVal: COUNTDOWN_SECONDS,
+    gameData: ""
+};
 
             currentRoom = rooms[targetRoomCode];
         }
@@ -199,24 +199,27 @@ io.on("connection", (socket) => {
     });
 
     // Store latest game state
-    socket.on("syncGameState", (gameState) => {
+socket.on("syncGameState", (state) => {
 
-        const roomCode = socket.roomCode;
+    const roomCode = socket.roomCode;
 
-        if (
-            !roomCode ||
-            !rooms[roomCode]
-        ) {
-            return;
+    if (!roomCode || !rooms[roomCode]) {
+        return;
+    }
+
+    rooms[roomCode].gameData = state.gameData;
+
+    socket.to(roomCode).emit(
+        "gameStateUpdated",
+        {
+            gameData: state.gameData
         }
+    );
 
-        rooms[roomCode].gameState = gameState;
-
-        socket.to(roomCode).emit(
-            "gameStateUpdated",
-            gameState
-        );
-    });
+    console.log(
+        `Game state synced for room ${roomCode}`
+    );
+});
 
     // Optional request for latest state
     socket.on("requestGameState", () => {
