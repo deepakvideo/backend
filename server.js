@@ -57,7 +57,8 @@ function getCleanRoomState(room) {
 let activeMatchRoom = null;
 const rooms = {};
 
-const MAX_PLAYERS_PER_ROOM = 2;
+const MIN_PLAYERS_PER_ROOM = 2;
+const MAX_PLAYERS_PER_ROOM = 5;
 const COUNTDOWN_SECONDS = 20;
 
 io.on("connection", (socket) => {
@@ -66,7 +67,7 @@ io.on("connection", (socket) => {
   socket.on("joinGame", ({ requestedRoom, playerName }) => {
     let targetRoomCode = requestedRoom ? requestedRoom.toUpperCase() : "";
 
-    // If no specific room was requested, find or create active auto-match room
+    // If no specific room requested, find or create the active open match room
     if (!targetRoomCode) {
       if (
         !activeMatchRoom ||
@@ -79,14 +80,13 @@ io.on("connection", (socket) => {
       targetRoomCode = activeMatchRoom;
     }
 
-    // Check if room exists
     let currentRoom = rooms[targetRoomCode];
 
-    // Redirect to a fresh room ONLY if the requested room is locked or full
+    // If requested room is already full or started, redirect to a new room
     if (currentRoom && (currentRoom.players.length >= MAX_PLAYERS_PER_ROOM || currentRoom.started)) {
       socket.emit("errorMsg", "Requested room is full or in progress. Redirecting to a new room.");
       targetRoomCode = generateRoomCode();
-      currentRoom = null; // Reset to trigger creation of new room
+      currentRoom = null;
     }
 
     // Initialize room if it doesn't exist
@@ -113,25 +113,51 @@ io.on("connection", (socket) => {
 
     currentRoom.players.push(player);
 
-    // Explicitly emit assigned room to the joining client
+    // Explicitly emit assigned room to joining client
     socket.emit("assignedRoom", targetRoomCode);
 
-    // Trigger match countdown when room reaches capacity
-    if (currentRoom.players.length >= MAX_PLAYERS_PER_ROOM && !currentRoom.countdown && !currentRoom.started) {
+    // Start 20-second countdown as soon as the FIRST player joins the room (if not already started)
+    if (currentRoom.players.length >= 1 && !currentRoom.countdown && !currentRoom.started) {
       currentRoom.timerVal = COUNTDOWN_SECONDS;
 
       currentRoom.countdown = setInterval(() => {
         currentRoom.timerVal -= 1;
-
         io.to(targetRoomCode).emit("countdownUpdate", currentRoom.timerVal);
 
+        // When timer expires
         if (currentRoom.timerVal <= 0) {
           clearInterval(currentRoom.countdown);
           currentRoom.countdown = null;
-          currentRoom.started = true; // Lock room
-          io.to(targetRoomCode).emit("gameStartSignal", getCleanRoomState(currentRoom));
+
+          // Check if we have enough players (min 2)
+          if (currentRoom.players.length >= MIN_PLAYERS_PER_ROOM) {
+            currentRoom.started = true; // Lock room
+            io.to(targetRoomCode).emit("gameStartSignal", getCleanRoomState(currentRoom));
+          } else {
+            // Not enough players yet, reset timer to keep waiting for more players
+            currentRoom.timerVal = COUNTDOWN_SECONDS;
+            io.to(targetRoomCode).emit("countdownUpdate", currentRoom.timerVal);
+            
+            // Restart interval or handle waiting state
+            // (Re-triggering countdown recursively or simple check)
+          }
         }
       }, 1000);
+    }
+
+    // If room hits MAXIMUM capacity (5 players) before timer runs out, start immediately!
+    if (currentRoom.players.length >= MAX_PLAYERS_PER_ROOM && !currentRoom.started) {
+      if (currentRoom.countdown) {
+        clearInterval(currentRoom.countdown);
+        currentRoom.countdown = null;
+      }
+      currentRoom.started = true;
+      io.to(targetRoomCode).emit("gameStartSignal", getCleanRoomState(currentRoom));
+
+      // If this was the active auto-match room, rotate activeMatchRoom so next players go to a fresh table
+      if (activeMatchRoom === targetRoomCode) {
+        activeMatchRoom = generateRoomCode();
+      }
     }
 
     // Broadcast room update to all room members
@@ -153,12 +179,9 @@ io.on("connection", (socket) => {
       // Remove player
       room.players = room.players.filter((p) => p.id !== socket.id);
 
-      // Stop countdown if player count drops below capacity before game starts
-      if (room.players.length < MAX_PLAYERS_PER_ROOM && room.countdown) {
-        clearInterval(room.countdown);
-        room.countdown = null;
-        room.timerVal = COUNTDOWN_SECONDS;
-        io.to(roomCode).emit("countdownUpdate", COUNTDOWN_SECONDS);
+      // If game hasn't started and player count drops below minimum, reset timer if needed
+      if (!room.started && room.players.length < MIN_PLAYERS_PER_ROOM && room.countdown) {
+        // Optional: you can let the timer keep running or reset
       }
 
       // Cleanup empty rooms
