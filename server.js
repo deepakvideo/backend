@@ -177,8 +177,7 @@ if (currentRoom.timerVal <= 0) {
     currentRoom.started = true;
 
     // TEMP DEBUG DATA
-    currentRoom.gameData =
-        "1|1|-1|000|000|000|000|0|0|";
+  currentRoom.gameData = "";
 
     console.log(
         "GAME DATA BEFORE START =",
