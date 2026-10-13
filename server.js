@@ -35,6 +35,11 @@ function getCleanRoomState(room) {
     id: room.id,
     started: room.started,
     timerVal: room.timerVal,
+    // Provide your actual game state/payload here as a string
+    gameData: JSON.stringify({
+      deck: room.deck || [],
+      initialState: room.initialState || {}
+    }),
     players: room.players.map((p) => ({
       id: p.id,
       name: p.name,
