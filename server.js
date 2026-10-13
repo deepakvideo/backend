@@ -54,39 +54,50 @@ function getCleanRoomState(room) {
   };
 }
 
-let activeMatchRoom = null;
 const rooms = {};
 
-const MAX_PLAYERS_PER_ROOM = 2;
+const MIN_PLAYERS_PER_ROOM = 2;
+const MAX_PLAYERS_PER_ROOM = 5;
 const COUNTDOWN_SECONDS = 20;
 
 io.on("connection", (socket) => {
   console.log(`Client connected: ${socket.id}`);
 
-  socket.on("joinGame", ({ requestedRoom, playerName }) => {
-    let targetRoomCode = requestedRoom ? requestedRoom.toUpperCase() : "";
+  socket.on("joinGame", (data) => {
+    let requestedRoom = "";
+    let playerName = "";
 
-    // If no specific room was requested, find or create active auto-match room
-    if (!targetRoomCode) {
-      if (
-        !activeMatchRoom ||
-        !rooms[activeMatchRoom] ||
-        rooms[activeMatchRoom].players.length >= MAX_PLAYERS_PER_ROOM ||
-        rooms[activeMatchRoom].started
-      ) {
-        activeMatchRoom = generateRoomCode();
-      }
-      targetRoomCode = activeMatchRoom;
+    // Safely parse incoming data whether passed as an object or empty
+    if (typeof data === "object" && data !== null) {
+      requestedRoom = data.requestedRoom || "";
+      playerName = data.playerName || data.name || "";
     }
 
-    // Check if room exists
+    let targetRoomCode = requestedRoom ? requestedRoom.toUpperCase() : "";
+
+    // If no specific room requested, find ANY existing open room with space (< 5 players) and not started
+    if (!targetRoomCode) {
+      let openRoom = Object.values(rooms).find(
+        (r) => !r.started && r.players.length < MAX_PLAYERS_PER_ROOM
+      );
+
+      if (openRoom) {
+        targetRoomCode = openRoom.id;
+      } else {
+        targetRoomCode = generateRoomCode();
+      }
+    }
+
     let currentRoom = rooms[targetRoomCode];
 
-    // Redirect to a fresh room ONLY if the requested room is locked or full
+    // If requested room is already full or started, redirect to a new room or find another open one
     if (currentRoom && (currentRoom.players.length >= MAX_PLAYERS_PER_ROOM || currentRoom.started)) {
       socket.emit("errorMsg", "Requested room is full or in progress. Redirecting to a new room.");
-      targetRoomCode = generateRoomCode();
-      currentRoom = null; // Reset to trigger creation of new room
+      let openRoom = Object.values(rooms).find(
+        (r) => !r.started && r.players.length < MAX_PLAYERS_PER_ROOM
+      );
+      targetRoomCode = openRoom ? openRoom.id : generateRoomCode();
+      currentRoom = rooms[targetRoomCode];
     }
 
     // Initialize room if it doesn't exist
@@ -113,25 +124,43 @@ io.on("connection", (socket) => {
 
     currentRoom.players.push(player);
 
-    // Explicitly emit assigned room to the joining client
+    // Explicitly emit assigned room to joining client
     socket.emit("assignedRoom", targetRoomCode);
 
-    // Trigger match countdown when room reaches capacity
-    if (currentRoom.players.length >= MAX_PLAYERS_PER_ROOM && !currentRoom.countdown && !currentRoom.started) {
+    // Start 20-second countdown as soon as the FIRST player joins the room (if not already started)
+    if (currentRoom.players.length >= 1 && !currentRoom.countdown && !currentRoom.started) {
       currentRoom.timerVal = COUNTDOWN_SECONDS;
 
       currentRoom.countdown = setInterval(() => {
         currentRoom.timerVal -= 1;
-
         io.to(targetRoomCode).emit("countdownUpdate", currentRoom.timerVal);
 
+        // When timer expires
         if (currentRoom.timerVal <= 0) {
           clearInterval(currentRoom.countdown);
           currentRoom.countdown = null;
-          currentRoom.started = true; // Lock room
-          io.to(targetRoomCode).emit("gameStartSignal", getCleanRoomState(currentRoom));
+
+          // Check if we have enough players (min 2)
+          if (currentRoom.players.length >= MIN_PLAYERS_PER_ROOM) {
+            currentRoom.started = true; // Lock room
+            io.to(targetRoomCode).emit("gameStartSignal", getCleanRoomState(currentRoom));
+          } else {
+            // Not enough players yet, reset timer to keep waiting for more players
+            currentRoom.timerVal = COUNTDOWN_SECONDS;
+            io.to(targetRoomCode).emit("countdownUpdate", currentRoom.timerVal);
+          }
         }
       }, 1000);
+    }
+
+    // If room hits MAXIMUM capacity (5 players) before timer runs out, start immediately!
+    if (currentRoom.players.length >= MAX_PLAYERS_PER_ROOM && !currentRoom.started) {
+      if (currentRoom.countdown) {
+        clearInterval(currentRoom.countdown);
+        currentRoom.countdown = null;
+      }
+      currentRoom.started = true;
+      io.to(targetRoomCode).emit("gameStartSignal", getCleanRoomState(currentRoom));
     }
 
     // Broadcast room update to all room members
@@ -153,21 +182,10 @@ io.on("connection", (socket) => {
       // Remove player
       room.players = room.players.filter((p) => p.id !== socket.id);
 
-      // Stop countdown if player count drops below capacity before game starts
-      if (room.players.length < MAX_PLAYERS_PER_ROOM && room.countdown) {
-        clearInterval(room.countdown);
-        room.countdown = null;
-        room.timerVal = COUNTDOWN_SECONDS;
-        io.to(roomCode).emit("countdownUpdate", COUNTDOWN_SECONDS);
-      }
-
       // Cleanup empty rooms
       if (room.players.length === 0) {
         if (room.countdown) clearInterval(room.countdown);
         delete rooms[roomCode];
-        if (activeMatchRoom === roomCode) {
-          activeMatchRoom = null;
-        }
       } else {
         // Reassign host status if old host disconnected
         if (!room.players.some((p) => p.isHost)) {
