@@ -204,23 +204,6 @@ if (currentRoom.timerVal <= 0) {
     });
 
 
-socket.on("initialGameState", (data) => {
-
-    const roomCode = socket.roomCode;
-
-    if (!roomCode || !rooms[roomCode]) {
-        return;
-    }
-
-    rooms[roomCode].gameData =
-        data.gameData;
-
-    console.log(
-        "Initial game state stored"
-    );
-});
-
-    // Store latest game state
 socket.on("syncGameState", (state) => {
 
     const roomCode = socket.roomCode;
@@ -231,18 +214,39 @@ socket.on("syncGameState", (state) => {
 
     rooms[roomCode].gameData = state.gameData;
 
-    socket.to(roomCode).emit(
-        "gameStateUpdated",
-        {
-            gameData: state.gameData
-        }
-    );
-
     console.log(
         `Game state synced for room ${roomCode}`
     );
+
+    io.to(roomCode).emit(
+        "gameStartSignal",
+        getCleanRoomState(
+            rooms[roomCode]
+        )
+    );
 });
 
+socket.on("initialGameState", (data) => {
+
+    const roomCode = socket.roomCode;
+
+    if (!roomCode || !rooms[roomCode]) {
+        return;
+    }
+
+    rooms[roomCode].gameData = data.gameData;
+
+    io.to(roomCode).emit(
+        "gameStartSignal",
+        getCleanRoomState(
+            rooms[roomCode]
+        )
+    );
+
+    console.log(
+        "Initial game state stored"
+    );
+});
     // Optional request for latest state
     socket.on("requestGameState", () => {
 
