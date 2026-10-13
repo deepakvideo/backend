@@ -202,6 +202,23 @@ if (currentRoom.timerVal <= 0) {
         );
     });
 
+
+socket.on("initialGameState", (data) => {
+
+    const roomCode = socket.roomCode;
+
+    if (!roomCode || !rooms[roomCode]) {
+        return;
+    }
+
+    rooms[roomCode].gameData =
+        data.gameData;
+
+    console.log(
+        "Initial game state stored"
+    );
+});
+
     // Store latest game state
 socket.on("syncGameState", (state) => {
 
