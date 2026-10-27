@@ -145,7 +145,8 @@ io.on("connection", (socket) => {
       socket.to(roomCode).emit("gameStateUpdated", gameState);
     }
   });
-// Handle Invalid Declaration Penalty
+
+  // Handle Invalid Declaration Penalty
   socket.on("invalid_declaration", (data) => {
     const roomCode = (data && data.room) || socket.roomCode;
     if (roomCode && rooms[roomCode]) {
@@ -154,6 +155,17 @@ io.on("connection", (socket) => {
       });
     }
   });
+
+  // Handle Turn Timeout / 30s Expiry
+  socket.on("player_timeout", (data) => {
+    const roomCode = (data && data.room) || socket.roomCode;
+    if (roomCode && rooms[roomCode]) {
+      socket.to(roomCode).emit("opponent_timeout", {
+        playerName: data.playerName || "Opponent"
+      });
+    }
+  });
+
   // Handle Player Manual Drop / Forfeit
   socket.on("player_drop", (data) => {
     const roomCode = (data && data.room) || socket.roomCode;
