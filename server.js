@@ -65,6 +65,7 @@ io.on("connection", (socket) => {
 
   socket.on("joinGame", ({ requestedRoom, playerName }) => {
     let targetRoomCode = requestedRoom ? requestedRoom.toUpperCase() : "";
+    socket.playerName = playerName || "Player";
 
     // If no specific room was requested, find or create active auto-match room
     if (!targetRoomCode) {
@@ -106,7 +107,7 @@ io.on("connection", (socket) => {
 
     const player = {
       id: socket.id,
-      name: playerName || `Player ${currentRoom.players.length + 1}`,
+      name: socket.playerName,
       hand: [],
       isHost: currentRoom.players.length === 0,
     };
@@ -145,10 +146,37 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Handle Player Manual Drop / Forfeit
+  socket.on("player_drop", (data) => {
+    const roomCode = (data && data.room) || socket.roomCode;
+    if (roomCode && rooms[roomCode]) {
+      const room = rooms[roomCode];
+      const playerName = socket.playerName || "Opponent";
+
+      // Remove player
+      room.players = room.players.filter((p) => p.id !== socket.id);
+
+      if (room.countdown) clearInterval(room.countdown);
+
+      // Notify remaining player(s) that opponent dropped
+      io.to(roomCode).emit("player_left", {
+        activePlayersCount: room.players.length,
+        playerName: playerName,
+        reason: "drop"
+      });
+
+      if (room.players.length === 0) {
+        delete rooms[roomCode];
+        if (activeMatchRoom === roomCode) activeMatchRoom = null;
+      }
+    }
+  });
+
   socket.on("disconnect", () => {
     const roomCode = socket.roomCode;
     if (roomCode && rooms[roomCode]) {
       const room = rooms[roomCode];
+      const playerName = socket.playerName || "Opponent";
 
       // Remove player
       room.players = room.players.filter((p) => p.id !== socket.id);
@@ -160,6 +188,13 @@ io.on("connection", (socket) => {
         room.timerVal = COUNTDOWN_SECONDS;
         io.to(roomCode).emit("countdownUpdate", COUNTDOWN_SECONDS);
       }
+
+      // Notify remaining players about disconnect
+      io.to(roomCode).emit("player_left", {
+        activePlayersCount: room.players.length,
+        playerName: playerName,
+        reason: "disconnect"
+      });
 
       // Cleanup empty rooms
       if (room.players.length === 0) {
