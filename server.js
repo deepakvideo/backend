@@ -165,7 +165,15 @@ io.on("connection", (socket) => {
       });
     }
   });
-
+// Handle Valid Card Declaration Broadcast
+  socket.on("player_declared", (data) => {
+    const roomCode = (data && data.room) || socket.roomCode;
+    if (roomCode && rooms[roomCode]) {
+      socket.to(roomCode).emit("opponent_declared", {
+        playerName: data.playerName || "Opponent"
+      });
+    }
+  });
   // Handle Player Manual Drop / Forfeit
   socket.on("player_drop", (data) => {
     const roomCode = (data && data.room) || socket.roomCode;
