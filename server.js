@@ -157,12 +157,33 @@ io.on("connection", (socket) => {
   });
 
   // Handle Turn Timeout / 30s Expiry
+  // Handle 30-Second Turn Timeout Expiry
   socket.on("player_timeout", (data) => {
     const roomCode = (data && data.room) || socket.roomCode;
     if (roomCode && rooms[roomCode]) {
-      socket.to(roomCode).emit("opponent_timeout", {
-        playerName: data.playerName || "Opponent"
+      const room = rooms[roomCode];
+      const timedOutPlayerName = data.playerName || "A player";
+
+      // Remove the timed-out player from the active room state
+      room.players = room.players.filter((p) => p.id !== socket.id);
+
+      // Advance turn index if needed
+      if (room.turnIndex >= room.players.length) {
+        room.turnIndex = 0;
+      }
+
+      // Broadcast timeout result to remaining players in the room
+      io.to(roomCode).emit("opponent_timeout", {
+        playerName: timedOutPlayerName,
+        activePlayersCount: room.players.length
       });
+
+      // Cleanup empty rooms
+      if (room.players.length === 0) {
+        if (room.countdown) clearInterval(room.countdown);
+        delete rooms[roomCode];
+        if (activeMatchRoom === roomCode) activeMatchRoom = null;
+      }
     }
   });
 // Handle Valid Card Declaration Broadcast
