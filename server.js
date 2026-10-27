@@ -145,7 +145,15 @@ io.on("connection", (socket) => {
       socket.to(roomCode).emit("gameStateUpdated", gameState);
     }
   });
-
+// Handle Invalid Declaration Penalty
+  socket.on("invalid_declaration", (data) => {
+    const roomCode = (data && data.room) || socket.roomCode;
+    if (roomCode && rooms[roomCode]) {
+      socket.to(roomCode).emit("opponent_invalid_declaration", {
+        playerName: data.playerName || "Opponent"
+      });
+    }
+  });
   // Handle Player Manual Drop / Forfeit
   socket.on("player_drop", (data) => {
     const roomCode = (data && data.room) || socket.roomCode;
